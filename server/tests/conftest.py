@@ -69,6 +69,20 @@ def _task(cur, uuid, title, **kwargs):
     )
 
 
+@pytest.fixture(autouse=True)
+def isolate_user_files(tmp_path, monkeypatch):
+    """Never let the suite touch the real ~/.config/things3-mcp.
+
+    The audit log and the config file live outside the repo, so without this a
+    test run writes into the user's own state.
+    """
+    from things3_mcp import permissions
+
+    monkeypatch.setattr(permissions, "CONFIG_DIR", tmp_path / "config")
+    monkeypatch.setattr(permissions, "AUDIT_LOG", tmp_path / "config" / "audit.log")
+    monkeypatch.setenv("THINGS3_MCP_CONFIG_DIR", str(tmp_path / "config"))
+
+
 @pytest.fixture
 def db_path(tmp_path):
     path = tmp_path / "main.sqlite"

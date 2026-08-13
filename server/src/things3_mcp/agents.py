@@ -20,11 +20,11 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 
 from . import applescript
 from .dates import now_iso
-from .permissions import PermissionDenied, confirmation_required
+from .permissions import PermissionDenied
 from .services import Services
 from .tools_write import build_attributes, build_project_items
 
@@ -89,7 +89,9 @@ def register(server: MCPServer, services: Services) -> None:
         return streams
 
     @server.tool()
-    def agent_workspace_init(area: str | None = None, confirmed: bool = False) -> dict[str, Any]:
+    async def agent_workspace_init(
+        area: str | None = None, confirmed: bool = False, ctx: Context | None = None
+    ) -> dict[str, Any]:
         """Set up or inspect the agent workspace.
 
         With no argument, reports the areas agents already own and what is in
@@ -110,9 +112,9 @@ def register(server: MCPServer, services: Services) -> None:
             else:
                 created = False
                 contents = db.projects(area=area, limit=100)
-                if not config.owns_area(area) and contents and not confirmed:
-                    guard.audit("agent_workspace_init", "confirmation_required", area=area)
-                    return confirmation_required(
+                if not config.owns_area(area) and contents:
+                    blocked = await guard.consent(
+                        ctx,
                         "agent_workspace_init",
                         {
                             "area": area,
@@ -121,7 +123,11 @@ def register(server: MCPServer, services: Services) -> None:
                         f"'{area}' already holds the user's own projects. Adding it to "
                         "the agent workspace lets agents write there without asking "
                         "each time.",
+                        confirmed,
+                        area=area,
                     )
+                    if blocked:
+                        return blocked
             if not config.owns_area(area):
                 config.save(agents_areas=[*config.agents_areas, area])
             guard.audit("agent_workspace_init", "ok", area=area, created=created)

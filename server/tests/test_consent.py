@@ -119,3 +119,40 @@ def test_the_audit_log_records_which_channel_granted_consent(
     entries = [json.loads(line) for line in log.read_text().splitlines()]
     granted = [e for e in entries if e["outcome"] == "consent_granted"]
     assert [e["channel"] for e in granted] == ["elicitation", "confirmed_flag"]
+
+
+# -- the agent workspace ------------------------------------------------
+
+
+@pytest.fixture
+def agent_tools(services, monkeypatch):
+    from things3_mcp import agents
+    from things3_mcp.config import Config
+
+    monkeypatch.setattr(agents.applescript, "create_area", lambda name: None)
+    monkeypatch.setattr(
+        Config, "save", lambda self, **u: [setattr(self, k, v) for k, v in u.items()]
+    )
+    server = FakeServer()
+    agents.register(server, services)
+    return server.tools
+
+
+def test_adopting_a_users_area_asks_the_user(agent_tools, config):
+    ctx = FakeContext(False)
+    result = agent_tools["agent_workspace_init"](area="Casa", confirmed=True, ctx=ctx)
+    assert "Trasloco" in ctx.messages[0]
+    assert result["declined_by_user"] is True
+    assert config.agents_areas == ["Agents"]
+
+
+def test_adopting_it_proceeds_when_the_user_agrees(agent_tools, config):
+    agent_tools["agent_workspace_init"](area="Casa", ctx=FakeContext(True))
+    assert config.agents_areas == ["Agents", "Casa"]
+
+
+def test_a_brand_new_area_never_interrupts(agent_tools, config):
+    ctx = FakeContext(False)
+    agent_tools["agent_workspace_init"](area="Nuova", ctx=ctx)
+    assert ctx.messages == []  # nothing of the user's is at stake
+    assert config.agents_areas == ["Agents", "Nuova"]

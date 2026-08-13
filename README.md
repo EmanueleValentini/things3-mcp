@@ -78,11 +78,17 @@ any client:
   describes it and asks before the first write.
 - **The user is asked, always** — `delete_item`, `delete_area`, `cancel_item`,
   `set_notes`, `remove_tags`, moving an item out of its project, `empty_trash`,
-  and completing an item the agent did not create. The server asks *your
-  client* to put the question to you, over MCP elicitation, so the answer comes
-  from you rather than from the agent's judgement. Clients that cannot do that
-  get a preview to relay instead, and the agent must stop and wait for your
-  reply before calling again with `confirmed=true`.
+  and completing an item the agent did not create, plus adopting an area of
+  yours into the agent workspace. The server asks *your client* to put the
+  question to you, over MCP elicitation, so the answer comes from you rather
+  than from the agent's judgement.
+
+  Not every client supports elicitation — Claude Code, as of this writing, does
+  not. There the server falls back to handing the agent a preview to relay, and
+  the agent must stop and wait for your reply before calling again with
+  `confirmed=true`. The audit log records which of the two channels granted
+  consent, so `channel: confirmed_flag` tells you the agent relayed it and
+  `channel: elicitation` that the client asked you directly.
 
 `delete_item` moves to the Things trash and is recoverable. `empty_trash` is the
 one irreversible operation and is disabled unless `THINGS_ALLOW_EMPTY_TRASH=1`.
