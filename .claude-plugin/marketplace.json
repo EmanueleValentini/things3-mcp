@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "things3",
+  "description": "Things 3 per agenti: MCP server, skill e comandi per gestire progetti e task in linguaggio naturale su macOS.",
+  "owner": {
+    "name": "Emanuele Valentini"
+  },
+  "plugins": [
+    {
+      "name": "things3",
+      "description": "Controlla Things 3 in linguaggio naturale e dai agli agenti un'area di lavoro dentro Things.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

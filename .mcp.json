@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "things3": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${CLAUDE_PLUGIN_ROOT}/server",
+        "things3-mcp"
+      ]
+    }
+  }
+}

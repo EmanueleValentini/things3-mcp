@@ -1,0 +1,9 @@
+{
+  "name": "things3",
+  "description": "Gestisci Things 3 in linguaggio naturale e lascia che gli agenti usino progetti Things per organizzare il proprio lavoro. Letture da sqlite, scritture via URL scheme, guard-rail sulle operazioni distruttive.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Emanuele Valentini"
+  },
+  "keywords": ["things3", "gtd", "task-management", "macos", "mcp", "productivity"]
+}

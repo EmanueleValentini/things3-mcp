@@ -1,0 +1,13 @@
+# Paste into ~/.codex/config.toml if you prefer not to run scripts/install-codex.sh.
+# Replace /path/to/Things3MCP with wherever you cloned this repo.
+
+[mcp_servers.things3]
+command = "uv"
+args = ["run", "--directory", "/path/to/Things3MCP/server", "things3-mcp"]
+startup_timeout_sec = 60
+
+[mcp_servers.things3.env]
+# Distinguishes this agent's claims from Claude's in the shared workspace.
+THINGS_AGENT_ID = "codex"
+# Optional: agents-only | confirm-outside (default) | unrestricted
+# THINGS_WRITE_SCOPE = "confirm-outside"
