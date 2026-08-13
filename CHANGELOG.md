@@ -14,6 +14,16 @@ two rules shape what counts as a breaking change:
 
 ## [Unreleased]
 
+### Fixed
+
+- `health_check` no longer crashes on a machine without Things 3 — a Linux
+  sandbox, for instance. It reports what is missing, which is its whole job.
+
+### Documentation
+
+- Installing on Cowork, which uses the same plugin format and the same
+  marketplace command.
+
 ## [0.1.0] — 2026-08-13
 
 First release. Reads Things 3 from its database, writes through the URL scheme,

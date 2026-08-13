@@ -71,9 +71,14 @@ def build_server() -> MCPServer:
                 "No auth token: creating items works, updating existing ones does "
                 "not. Run /things3:setup."
             )
-        missing_areas = [
-            name for name in config.agents_areas if services.db.area_by_title(name) is None
-        ]
+        # Only ask the database about areas if it answered at all. Off a Mac —
+        # a Linux sandbox, say — there is nothing to read, and the tool whose
+        # job is to explain that must not fall over doing it.
+        missing_areas = (
+            [name for name in config.agents_areas if services.db.area_by_title(name) is None]
+            if report["database_readable"]
+            else []
+        )
         if missing_areas:
             problems.append(
                 f"Agent areas not in Things yet: {', '.join(missing_areas)}. "

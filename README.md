@@ -56,6 +56,17 @@ An installed plugin is a frozen copy at the version you installed. It does not
 follow the repository, so run `/plugin update things3@things3` to pick up a new
 release.
 
+### Cowork
+
+Cowork reads the same plugin format, so the same marketplace works there —
+add `EmanueleValentini/things3-mcp` from its plugin settings.
+
+One caveat worth knowing before you try: this plugin talks to a Mac app through
+its local database and AppleScript. It only works where Things 3 actually runs.
+If your Cowork session executes in a Linux sandbox rather than on your Mac,
+`health_check` will tell you the database is not there, and no tool will work —
+that is a property of where the session runs, not something a plugin can fix.
+
 ### Codex
 
 ```bash

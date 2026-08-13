@@ -75,3 +75,23 @@ def test_the_marketplace_points_at_this_repo_root():
     entry = json.loads(MARKETPLACE.read_text())["plugins"][0]
     assert entry["source"] == "./"
     assert entry["name"] == json.loads(PLUGIN.read_text())["name"]
+
+
+def test_health_check_survives_a_machine_without_things(tmp_path, monkeypatch):
+    """The plugin also installs on Cowork, which may run it in a Linux sandbox.
+
+    There is no Things there, and no database. health_check is what has to say
+    so — crashing is the one thing it must not do.
+    """
+    import asyncio
+
+    monkeypatch.setenv("THINGS_DB_PATH", str(tmp_path / "absent.sqlite"))
+    monkeypatch.setenv("THINGS3_MCP_CONFIG_DIR", str(tmp_path / "config"))
+
+    from things3_mcp.server import build_server
+
+    report = asyncio.run(build_server().call_tool("health_check", {}))
+    data = report[1] if isinstance(report, tuple) else report
+    text = str(data)
+    assert "not found" in text
+    assert "'ok': False" in text or '"ok": false' in text
