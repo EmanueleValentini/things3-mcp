@@ -18,6 +18,7 @@ import time
 import urllib.parse
 from typing import Any
 
+from . import tags
 from .config import Config
 from .db import ThingsDB
 
@@ -79,6 +80,9 @@ class Writer:
     def send(self, payload: list[dict[str, Any]], *, needs_auth: bool) -> None:
         if needs_auth and not self.config.auth_token:
             raise AuthTokenMissing()
+        # Things drops tags that do not exist yet, without saying so, so they
+        # are created first. One choke point covers every write path.
+        tags.ensure_exist(self.db, tags.collect(payload))
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         params = {"data": data, "reveal": "false"}
         if self.config.auth_token:

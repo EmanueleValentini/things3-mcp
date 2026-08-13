@@ -81,9 +81,14 @@ try:
         tools["append_note"](uuid=first["uuid"], text="progress line")
         check("notes appended", "progress line" in (db.get(first["uuid"]).get("notes") or ""))
 
+        # This project is not in the agents area, so completing it is the
+        # user's call: the guard must ask before doing anything.
         preview = tools["complete_item"](uuid=first["uuid"])
-        check("agent-owned item completes without confirmation", "confirmation_required" not in preview)
-        check("completed", db.get(first["uuid"])["status"] == "completed")
+        check("completing a user item asks first", preview.get("confirmation_required") is True)
+        check("still open after the preview", db.get(first["uuid"])["status"] == "open")
+
+        tools["complete_item"](uuid=first["uuid"], confirmed=True)
+        check("completed once confirmed", db.get(first["uuid"])["status"] == "completed")
 
         guarded = tools["set_notes"](uuid=first["uuid"], notes="overwritten")
         check("destructive tool asks first", guarded.get("confirmation_required") is True)

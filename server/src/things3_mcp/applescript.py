@@ -53,6 +53,20 @@ def version() -> str:
     return run(f'tell application "{APP}" to return version')
 
 
+def create_tag(name: str) -> str:
+    """Create a tag and return its id.
+
+    The URL scheme cannot do this — it ignores tags that do not exist — and the
+    dictionary marks the application's tag element read-only, but `make new tag`
+    works anyway. Verified against Things 3.22.
+    """
+    escaped = name.replace("\\", "\\\\").replace('"', '\\"')
+    result = run(
+        f'tell application "{APP}" to make new tag with properties {{name:"{escaped}"}}'
+    )
+    return result.replace("tag id ", "").strip()
+
+
 def trash(uuid: str) -> None:
     """Move a to-do or project to the Things trash. Recoverable in-app."""
     run(

@@ -56,7 +56,12 @@ then ask it to run `health_check`.
 |---|---|---|
 | Read | sqlite, read-only | Fast, complete, does not open or focus the app |
 | Write | `things:///json` URL scheme | The only channel that creates headings and checklist items, and builds a whole project in one call |
-| Trash | AppleScript | Not available in the URL scheme |
+| Trash, new tags | AppleScript | Not available in the URL scheme |
+
+The URL scheme silently ignores any tag that does not already exist — no error,
+the tag is just missing afterwards. Every write therefore creates its missing
+tags over AppleScript first, so `agent`, `wip` and the rest appear the first
+time they are used rather than vanishing.
 
 Writes are serialised behind a rate limit, since Things drops anything past 250
 items per 10 seconds, and each one polls the database afterwards so a create can
