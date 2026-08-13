@@ -5,19 +5,26 @@ description: Use when an agent should track its own multi-step work in Things 3 
 
 # Using Things as the agent's work tracker
 
-The `agent_*` tools give you a workspace inside Things: one area (default
-`Agents`), one project per work stream, headings as phases. The user sees your
-plan and your progress in an app they already keep open, on their phone as well
-as their Mac.
+The `agent_*` tools give you a workspace inside Things: one or more areas
+(default a single `Agents`), one project per work stream, headings as phases.
+The user sees your plan and your progress in an app they already keep open, on
+their phone as well as their Mac.
 
-These tools only write inside the agents area, so they need no confirmation.
-Anything outside it goes through the general tools and their rules.
+These tools only write inside the agent areas, so they need no confirmation.
+Anything outside them goes through the general tools and their rules.
 
 ## Starting
 
-`agent_workspace_init` first. If the area does not exist it says so — areas
-cannot be created from automation, so the user has to add one named `Agents`
-once, by hand. Do not silently fall back to writing into their own projects.
+`agent_workspace_init` first: it reports the agent areas and whether each one
+exists in Things. If `ready` is false the area is missing — say so and ask
+before recreating it, since the user may have removed it on purpose.
+
+To keep domains apart, give each one its own area:
+`agent_workspace_init(area="Agents — Dev")` creates and registers it. Adopting
+an area that already holds the user's own projects returns a preview instead —
+that needs their yes, because it would put their work under rules that skip
+confirmation. Never fall back to writing into their projects because an area
+was missing.
 
 ## Turning a plan into a stream
 

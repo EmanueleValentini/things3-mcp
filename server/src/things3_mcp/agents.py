@@ -2,26 +2,29 @@
 
 Conventions, all enforced here so Claude and Codex behave identically:
 
-* one area (default "Agents") holds every agent work stream
+* one or more areas (default a single "Agents") hold the agent work streams —
+  several areas let one domain be kept apart from another
 * one project per stream, headings are the phases of the plan
 * tags: ``agent`` marks agent-owned items, ``agent:<id>`` marks the owner,
   ``wip`` a claimed task, ``blocked`` a stuck one, ``needs-review`` a finished
   one waiting on the user
 * progress is appended to the notes as timestamped lines, never overwritten
 
-These tools write only inside the agents area, so they need no confirmation.
+These tools write only inside the agent areas, so they need no confirmation.
 Anything touching the user's own projects goes through the general tools, which
 gate destructive changes.
 """
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
+from . import applescript
 from .dates import now_iso
-from .permissions import PermissionDenied
+from .permissions import PermissionDenied, confirmation_required
 from .services import Services
 from .tools_write import build_attributes, build_project_items
 
@@ -29,6 +32,9 @@ TAG_AGENT = "agent"
 TAG_WIP = "wip"
 TAG_BLOCKED = "blocked"
 TAG_REVIEW = "needs-review"
+
+# How long to wait for a newly created area to reach the database.
+AREA_TIMEOUT = 3.0
 
 
 def owner_tag(agent_id: str) -> str:
@@ -49,46 +55,96 @@ def register(server: MCPServer, services: Services) -> None:
             raise LookupError(f"No item with uuid {uuid}")
         if not guard.in_agents_area(item):
             raise PermissionDenied(
-                f"{item.get('title')!r} is in {item.get('area') or 'no area'}, not the "
-                f"'{config.agents_area}' area. The agent_* tools only manage the agent "
-                "workspace; use the general tools for the user's own items."
+                f"{item.get('title')!r} is in {item.get('area') or 'no area'}, not an "
+                f"agent area ({', '.join(config.agents_areas)}). The agent_* tools only "
+                "manage the agent workspace; use the general tools for the user's own "
+                "items."
             )
         return item
 
     def _log(uuid: str, line: str) -> None:
         writer.update(uuid, "todo", {"append-notes": f"\n[{now_iso()}] {line}"})
 
-    @server.tool()
-    def agent_workspace_init() -> dict[str, Any]:
-        """Check that the agents area exists and report what is in it.
+    def _create_area(name: str) -> dict[str, Any] | None:
+        """Create an area and wait for it to reach the database.
 
-        Call this before the first agent_* write in a session. Areas cannot be
-        created through Things' automation interfaces, so if it is missing the
-        result explains the one-time manual step.
+        AppleScript returns as soon as Things accepts the command, but the row
+        lands a moment later — without this, a workspace report taken right
+        after creating an area says the area does not exist.
         """
-        area = db.area_by_title(config.agents_area)
-        if area is None:
-            return {
-                "ready": False,
-                "area": config.agents_area,
-                "action_needed": (
-                    f"Create an area named '{config.agents_area}' in Things "
-                    "(File > New Area, or the + button at the bottom of the sidebar). "
-                    "Things does not allow creating areas from automation. Once it "
-                    "exists, call this tool again."
-                ),
-            }
-        streams = db.projects(area=config.agents_area, limit=100)
+        applescript.create_area(name)
+        deadline = time.monotonic() + AREA_TIMEOUT
+        while time.monotonic() < deadline:
+            record = db.area_by_title(name)
+            if record is not None:
+                return record
+            time.sleep(0.1)
+        return None
+
+    def _all_streams() -> list[dict[str, Any]]:
+        """Every project across every agent area, areas in configured order."""
+        streams: list[dict[str, Any]] = []
+        for name in config.agents_areas:
+            streams.extend(db.projects(area=name, limit=100))
+        return streams
+
+    @server.tool()
+    def agent_workspace_init(area: str | None = None, confirmed: bool = False) -> dict[str, Any]:
+        """Set up or inspect the agent workspace.
+
+        With no argument, reports the areas agents already own and what is in
+        them. Pass `area` to add another one — useful for separating domains,
+        one area per domain and one project per work stream inside it.
+
+        A new area is created and registered straight away: an empty area holds
+        nothing that could be damaged. Adopting an area that already contains
+        the user's own items is different — it would bring their work under
+        rules that skip confirmation — so that returns a preview and needs
+        `confirmed=true` after they agree.
+        """
+        if area:
+            existing = db.area_by_title(area)
+            if existing is None:
+                _create_area(area)
+                created = True
+            else:
+                created = False
+                contents = db.projects(area=area, limit=100)
+                if not config.owns_area(area) and contents and not confirmed:
+                    guard.audit("agent_workspace_init", "confirmation_required", area=area)
+                    return confirmation_required(
+                        "agent_workspace_init",
+                        {
+                            "area": area,
+                            "existing_projects": [p["title"] for p in contents],
+                        },
+                        f"'{area}' already holds the user's own projects. Adding it to "
+                        "the agent workspace lets agents write there without asking "
+                        "each time.",
+                    )
+            if not config.owns_area(area):
+                config.save(agents_areas=[*config.agents_areas, area])
+            guard.audit("agent_workspace_init", "ok", area=area, created=created)
+
+        report = []
+        for name in config.agents_areas:
+            record = db.area_by_title(name)
+            report.append(
+                {
+                    "area": name,
+                    "exists": record is not None,
+                    "streams": [
+                        {"uuid": s["uuid"], "title": s["title"], "when": s.get("when")}
+                        for s in (db.projects(area=name, limit=100) if record else [])
+                    ],
+                }
+            )
         return {
-            "ready": True,
-            "area": config.agents_area,
-            "area_uuid": area["uuid"],
+            "ready": all(entry["exists"] for entry in report),
+            "default_area": config.agents_area,
             "agent_id": config.agent_id,
             "write_scope": config.write_scope,
-            "streams": [
-                {"uuid": s["uuid"], "title": s["title"], "when": s.get("when")}
-                for s in streams
-            ],
+            "areas": report,
         }
 
     @server.tool()
@@ -99,23 +155,35 @@ def register(server: MCPServer, services: Services) -> None:
         todos: list[dict] | None = None,
         when: str | None = None,
         deadline: str | None = None,
+        area: str | None = None,
     ) -> dict[str, Any]:
-        """Create a work stream: one project in the agents area.
+        """Create a work stream: one project in an agent area.
 
         `phases` become headings in order. Each entry of `todos` is an object
         with `title` and optionally `notes`, `heading` (a phase title),
         `checklist` and `deadline`. Everything is created in one call.
+
+        `area` picks which agent area to put it in, for workspaces split by
+        domain; it defaults to the first one. Use agent_workspace_init to add
+        an area before naming it here.
         """
-        area = db.area_by_title(config.agents_area)
-        if area is None:
+        target = area or config.agents_area
+        if not config.owns_area(target):
+            owned = ", ".join(config.agents_areas)
             raise PermissionDenied(
-                f"The '{config.agents_area}' area does not exist yet. "
-                "Call agent_workspace_init first."
+                f"'{target}' is not an agent area (agents own: {owned}). Add it with "
+                "agent_workspace_init, or use create_project to put a project in one "
+                "of the user's own areas."
+            )
+        area_record = db.area_by_title(target) or _create_area(target)
+        if area_record is None:
+            raise PermissionDenied(
+                f"Could not create or find the '{target}' area in Things."
             )
         attributes = build_attributes(
             title, notes, when, deadline, [TAG_AGENT, owner_tag(config.agent_id)]
         )
-        attributes["area-id"] = area["uuid"]
+        attributes["area-id"] = area_record["uuid"]
         items = build_project_items(phases, todos, extra_tags=[TAG_AGENT])
         if items:
             attributes["items"] = items
@@ -125,30 +193,36 @@ def register(server: MCPServer, services: Services) -> None:
         return db.project_tree(project["uuid"])
 
     @server.tool()
-    def agent_status(stream: str | None = None) -> dict[str, Any]:
+    def agent_status(stream: str | None = None, area: str | None = None) -> dict[str, Any]:
         """What the agent workspace currently looks like.
 
-        Returns each stream with its open, in-progress and blocked counts, plus
-        the tasks this agent currently holds. Pass `stream` (title or uuid) to
-        drill into one project.
+        Covers every agent area. Returns each stream with its open, in-progress
+        and blocked counts, plus the tasks this agent currently holds. Pass
+        `stream` (title or uuid) to drill into one project, or `area` to limit
+        the report to one domain.
         """
         if stream:
             matches = [
-                p
-                for p in db.projects(area=config.agents_area, limit=100)
-                if stream in (p.get("uuid"), p.get("title"))
+                p for p in _all_streams() if stream in (p.get("uuid"), p.get("title"))
             ]
             if not matches:
                 raise LookupError(f"No agent stream matching {stream!r}")
             return db.project_tree(matches[0]["uuid"])
 
+        if area and not config.owns_area(area):
+            raise PermissionDenied(
+                f"'{area}' is not an agent area ({', '.join(config.agents_areas)})."
+            )
         streams = []
-        for project in db.projects(area=config.agents_area, limit=100):
+        for project in _all_streams():
+            if area and project.get("area", "").casefold() != area.casefold():
+                continue
             todos = db.children(project["uuid"])
             streams.append(
                 {
                     "uuid": project["uuid"],
                     "title": project["title"],
+                    "area": project.get("area"),
                     "open": len(todos),
                     "wip": [t["title"] for t in todos if TAG_WIP in t.get("tags", [])],
                     "blocked": [
@@ -156,10 +230,14 @@ def register(server: MCPServer, services: Services) -> None:
                     ],
                 }
             )
-        mine = db.search(tag=owner_tag(config.agent_id), area=config.agents_area, limit=50)
+        mine = [
+            todo
+            for name in config.agents_areas
+            for todo in db.search(tag=owner_tag(config.agent_id), area=name, limit=50)
+        ]
         return {
             "agent_id": config.agent_id,
-            "area": config.agents_area,
+            "areas": config.agents_areas,
             "streams": streams,
             "claimed_by_me": [
                 {"uuid": t["uuid"], "title": t["title"], "project": t.get("project")}
@@ -169,13 +247,18 @@ def register(server: MCPServer, services: Services) -> None:
         }
 
     @server.tool()
-    def agent_next_task(stream: str | None = None) -> dict[str, Any]:
+    def agent_next_task(stream: str | None = None, area: str | None = None) -> dict[str, Any]:
         """The next unclaimed, unblocked task in the agent workspace.
 
         Respects project and heading order, so phases are worked in sequence.
+        Searches every agent area unless `area` or `stream` narrows it.
         Returns `{"empty": true}` when there is nothing left to pick up.
         """
-        projects = db.projects(area=config.agents_area, limit=100)
+        projects = _all_streams()
+        if area:
+            projects = [
+                p for p in projects if p.get("area", "").casefold() == area.casefold()
+            ]
         if stream:
             projects = [p for p in projects if stream in (p.get("uuid"), p.get("title"))]
         for project in projects:

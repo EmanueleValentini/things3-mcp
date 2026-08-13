@@ -21,10 +21,17 @@ class AppleScriptError(RuntimeError):
     pass
 
 
-def run(script: str, timeout: float = 30) -> str:
-    result = subprocess.run(
-        ["osascript", "-e", script], capture_output=True, text=True, timeout=timeout
-    )
+def run(script: str, *args: str, timeout: float = 30) -> str:
+    """Run an AppleScript. Any `args` reach it as `argv` in an `on run` handler.
+
+    Names for new tags and areas come from the model, so they are passed as
+    arguments rather than pasted into the source — a title is data, and data
+    should never be able to become another statement.
+    """
+    command = ["osascript", "-e", script]
+    if args:
+        command += ["--", *args]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
         message = result.stderr.strip()
         if "-1743" in message or "not allowed" in message.lower():
@@ -60,25 +67,46 @@ def create_tag(name: str) -> str:
     dictionary marks the application's tag element read-only, but `make new tag`
     works anyway. Verified against Things 3.22.
     """
-    escaped = name.replace("\\", "\\\\").replace('"', '\\"')
     result = run(
-        f'tell application "{APP}" to make new tag with properties {{name:"{escaped}"}}'
+        "on run argv\n"
+        f'  tell application "{APP}" to make new tag with properties {{name:(item 1 of argv)}}\n'
+        "end run",
+        name,
     )
     return result.replace("tag id ", "").strip()
+
+
+def create_area(name: str) -> str:
+    """Create an area of responsibility and return its id.
+
+    Like tags, this works despite the dictionary marking the application's area
+    element read-only. Verified against Things 3.22.
+    """
+    result = run(
+        "on run argv\n"
+        f'  tell application "{APP}" to make new area with properties {{name:(item 1 of argv)}}\n'
+        "end run",
+        name,
+    )
+    return result.replace("area id ", "").strip()
 
 
 def trash(uuid: str) -> None:
     """Move a to-do or project to the Things trash. Recoverable in-app."""
     run(
-        f'tell application "{APP}"\n'
-        f'  if exists to do id "{uuid}" then\n'
-        f'    move to do id "{uuid}" to list id "{TRASH_LIST_ID}"\n'
-        f'  else if exists project id "{uuid}" then\n'
-        f'    move project id "{uuid}" to list id "{TRASH_LIST_ID}"\n'
-        f"  else\n"
-        f'    error "no item with id {uuid}"\n'
-        f"  end if\n"
-        f"end tell"
+        "on run argv\n"
+        "  set theId to item 1 of argv\n"
+        f'  tell application "{APP}"\n'
+        "    if exists to do id theId then\n"
+        f'      move to do id theId to list id "{TRASH_LIST_ID}"\n'
+        "    else if exists project id theId then\n"
+        f'      move project id theId to list id "{TRASH_LIST_ID}"\n'
+        "    else\n"
+        '      error "no item with that id"\n'
+        "    end if\n"
+        "  end tell\n"
+        "end run",
+        uuid,
     )
 
 

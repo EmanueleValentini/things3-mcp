@@ -58,14 +58,34 @@ def _load_file() -> dict:
         return {}
 
 
+def parse_areas(value: str | list[str] | None) -> list[str]:
+    """Accept a single area or several, from JSON or a comma-separated string."""
+    if not value:
+        return []
+    if isinstance(value, str):
+        value = value.split(",")
+    names = [name.strip() for name in value if name and name.strip()]
+    return list(dict.fromkeys(names))
+
+
 @dataclass
 class Config:
     db_path: Path | None = field(default_factory=find_database)
     auth_token: str | None = None
     write_scope: str = SCOPE_CONFIRM_OUTSIDE
-    agents_area: str = DEFAULT_AGENTS_AREA
+    agents_areas: list[str] = field(default_factory=lambda: [DEFAULT_AGENTS_AREA])
     agent_id: str = "claude"
     allow_empty_trash: bool = False
+
+    @property
+    def agents_area(self) -> str:
+        """The area new work streams land in unless another one is named."""
+        return self.agents_areas[0] if self.agents_areas else DEFAULT_AGENTS_AREA
+
+    def owns_area(self, area: str | None) -> bool:
+        return bool(area) and any(
+            area.casefold() == owned.casefold() for owned in self.agents_areas
+        )
 
     @classmethod
     def load(cls) -> Config:
@@ -75,12 +95,19 @@ class Config:
         )
         if scope not in WRITE_SCOPES:
             scope = SCOPE_CONFIRM_OUTSIDE
+        # `agents_area` (singular) is still read so older config files and the
+        # matching environment variable keep working.
+        areas = parse_areas(
+            os.environ.get("THINGS_AGENTS_AREAS")
+            or os.environ.get("THINGS_AGENTS_AREA")
+            or stored.get("agents_areas")
+            or stored.get("agents_area")
+        ) or [DEFAULT_AGENTS_AREA]
         return cls(
             db_path=find_database(),
             auth_token=os.environ.get("THINGS_AUTH_TOKEN") or stored.get("auth_token"),
             write_scope=scope,
-            agents_area=os.environ.get("THINGS_AGENTS_AREA")
-            or stored.get("agents_area", DEFAULT_AGENTS_AREA),
+            agents_areas=areas,
             agent_id=os.environ.get("THINGS_AGENT_ID")
             or stored.get("agent_id", "claude"),
             allow_empty_trash=os.environ.get("THINGS_ALLOW_EMPTY_TRASH") == "1"

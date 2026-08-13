@@ -8,20 +8,7 @@ from things3_mcp import agents, tools_write
 from things3_mcp.config import SCOPE_AGENTS_ONLY
 from things3_mcp.permissions import PermissionDenied
 
-
-class FakeServer:
-    """Captures the functions each module registers so they can be called
-    directly, without going through the MCP transport."""
-
-    def __init__(self):
-        self.tools = {}
-
-    def tool(self, *args, **kwargs):
-        def decorator(fn):
-            self.tools[fn.__name__] = fn
-            return fn
-
-        return decorator
+from conftest import FakeServer
 
 
 @pytest.fixture
@@ -159,14 +146,14 @@ def test_needs_review_leaves_the_task_open(agent_tools, services):
 def test_workspace_init_reports_the_streams(agent_tools):
     status = agent_tools["agent_workspace_init"]()
     assert status["ready"] is True
-    assert [s["title"] for s in status["streams"]] == ["Refactor auth"]
+    assert [s["title"] for s in status["areas"][0]["streams"]] == ["Refactor auth"]
 
 
-def test_workspace_init_explains_a_missing_area(agent_tools, config):
-    config.agents_area = "Nonexistent"
+def test_workspace_init_flags_an_area_missing_from_things(agent_tools, config):
+    config.agents_areas = ["Nonexistent"]
     status = agent_tools["agent_workspace_init"]()
     assert status["ready"] is False
-    assert "Create an area" in status["action_needed"]
+    assert status["areas"][0]["exists"] is False
 
 
 def test_audit_log_records_confirmations(write_tools, guard, tmp_path, monkeypatch):

@@ -128,7 +128,7 @@ def config(db_path):
         db_path=db_path,
         auth_token="test-token",
         write_scope="confirm-outside",
-        agents_area="Agents",
+        agents_areas=["Agents"],
         agent_id="claude",
     )
 
@@ -141,6 +141,21 @@ def db(config):
 @pytest.fixture
 def guard(config, db):
     return Guard(config, db)
+
+
+class FakeServer:
+    """Captures the functions each module registers so they can be called
+    directly, without going through the MCP transport."""
+
+    def __init__(self):
+        self.tools = {}
+
+    def tool(self, *args, **kwargs):
+        def decorator(fn):
+            self.tools[fn.__name__] = fn
+            return fn
+
+        return decorator
 
 
 class RefusingWriter:

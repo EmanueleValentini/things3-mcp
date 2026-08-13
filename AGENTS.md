@@ -8,7 +8,7 @@ apply to any agent using it, in this repo or anywhere else.
 1. **Reads are free.** Every `list_*`, `get_item` and `search` call reads a
    local database. Use them freely to answer questions.
 
-2. **Writes outside the agents area touch the user's own system.** Say what you
+2. **Writes outside the agent areas touch the user's own system.** Say what you
    are about to create or change and get agreement in the same turn. An
    agreement covers the batch you described, not the rest of the session.
 
@@ -22,13 +22,15 @@ apply to any agent using it, in this repo or anywhere else.
 
 ## The agent workspace
 
-The `agent_*` tools manage one area in Things (default `Agents`) that belongs to
-agents rather than the user. They refuse to touch anything outside it, and need
-no confirmation inside it.
+The `agent_*` tools manage one or more areas in Things (default a single
+`Agents`) that belong to agents rather than the user. They refuse to touch
+anything outside them, and need no confirmation inside them. Several areas let
+one domain be kept apart from another.
 
-- `agent_workspace_init` — check the area exists (it must be created by hand
-  once; automation cannot create areas)
-- `agent_create_stream` — a project with phases as headings
+- `agent_workspace_init` — report the agent areas, or add one. A new area is
+  created straight away; adopting an area that already holds the user's
+  projects needs their confirmation first
+- `agent_create_stream` — a project with phases as headings, in any agent area
 - `agent_next_task` / `agent_claim_task` — pick up work, one holder at a time
 - `agent_log_progress` / `agent_block_task` — record what happened
 - `agent_complete_task` — finish, or hand back with `needs_review=True`

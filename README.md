@@ -12,10 +12,11 @@ macOS only. Requires Things 3 and [uv](https://docs.astral.sh/uv/).
 prima/durante/dopo", "cosa è in ritardo?". Reading is instant — it queries the
 Things database directly rather than driving the app.
 
-**For agents:** a dedicated area in Things where an agent turns a plan into a
+**For agents:** dedicated areas in Things where an agent turns a plan into a
 project, claims tasks one at a time, logs progress into the notes, and hands
-work back for review. Two agents (Claude and Codex) can share it without
-stepping on each other.
+work back for review. Two agents (Claude and Codex) can share them without
+stepping on each other, and you can keep one domain apart from another by
+giving it its own area.
 
 ## Install
 
@@ -72,7 +73,7 @@ be followed immediately by a read.
 Three levels, enforced in the server rather than in prompts, so they hold for
 any client:
 
-- **Automatic** — all reads, and any write inside the agents area.
+- **Automatic** — all reads, and any write inside an agent area.
 - **Check first** — creating or editing in your own projects. The agent
   describes it and asks before the first write.
 - **Explicit confirmation, always** — `delete_item`, `cancel_item`, `set_notes`,
@@ -85,8 +86,20 @@ one irreversible operation and is disabled unless `THINGS_ALLOW_EMPTY_TRASH=1`.
 Every write is appended to `~/.config/things3-mcp/audit.log`.
 
 `THINGS_WRITE_SCOPE` sets the boundary: `agents-only` (writes confined to the
-agents area), `confirm-outside` (default), `unrestricted`. Destructive
+agent areas), `confirm-outside` (default), `unrestricted`. Destructive
 operations need confirmation under all three.
+
+## The agent workspace
+
+Things nests exactly three levels — **area › project › heading › to-do ›
+checklist** — and the workspace maps onto them: an area per domain, a project
+per work stream, headings as the phases of the plan.
+
+One area is enough to start. `agent_workspace_init("Agents — Dev")` adds
+another and creates it in Things, for keeping domains apart. Creating a new
+area needs no confirmation, since an empty area holds nothing that could be
+damaged; adopting an area that already contains your projects does, because it
+would bring that work under rules that skip confirmation.
 
 ## Configuration
 
@@ -98,7 +111,7 @@ Environment variables override it:
 | `THINGS_AUTH_TOKEN` | Needed to modify existing items. Things > Settings > General > Enable Things URL scheme > Manage |
 | `THINGS_DB_PATH` | Override database discovery |
 | `THINGS_WRITE_SCOPE` | `agents-only` / `confirm-outside` / `unrestricted` |
-| `THINGS_AGENTS_AREA` | Area name for the agent workspace (default `Agents`) |
+| `THINGS_AGENTS_AREAS` | Comma-separated areas the agents own (default `Agents`) |
 | `THINGS_AGENT_ID` | Distinguishes agents sharing the workspace |
 | `THINGS_ALLOW_EMPTY_TRASH` | `1` to allow permanent deletion |
 

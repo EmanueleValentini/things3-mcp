@@ -50,21 +50,21 @@ class Guard:
     # -- scope ----------------------------------------------------------
 
     def in_agents_area(self, item: dict[str, Any] | None) -> bool:
-        return bool(item) and item.get("area") == self.config.agents_area
+        return bool(item) and self.config.owns_area(item.get("area"))
 
     def check_scope(self, tool: str, *, area: str | None, uuid: str | None = None) -> None:
-        """Reject writes that land outside the agents area under a strict scope."""
+        """Reject writes that land outside the agent areas under a strict scope."""
         if self.config.write_scope != SCOPE_AGENTS_ONLY:
             return
         if area is None and uuid:
             item = self.db.get(uuid)
             area = item.get("area") if item else None
-        if area != self.config.agents_area:
+        if not self.config.owns_area(area):
+            owned = ", ".join(self.config.agents_areas)
             raise PermissionDenied(
                 f"{tool} targets {area or 'no area'}, but THINGS_WRITE_SCOPE is "
-                f"'{SCOPE_AGENTS_ONLY}': writes are confined to the "
-                f"'{self.config.agents_area}' area. Ask the user to widen the scope "
-                "in /things3:setup if this is intended."
+                f"'{SCOPE_AGENTS_ONLY}': writes are confined to {owned}. Ask the "
+                "user to widen the scope in /things3:setup if this is intended."
             )
 
     def outside_agents_area(self, uuid: str) -> bool:
