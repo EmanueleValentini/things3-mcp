@@ -1,4 +1,4 @@
-# Things3MCP
+# things3-mcp
 
 Control [Things 3](https://culturedcode.com/things/) from Claude Code and Codex,
 in natural language — and let agents keep their own work plan inside Things,
@@ -22,7 +22,7 @@ stepping on each other.
 ### Claude Code
 
 ```bash
-/plugin marketplace add <your-github-user>/Things3MCP
+/plugin marketplace add EmanueleValentini/things3-mcp
 ```
 
 ```bash
@@ -35,7 +35,7 @@ automation prompt, stores the auth token and picks a write scope.
 ### Codex
 
 ```bash
-git clone https://github.com/<your-github-user>/Things3MCP.git && ./Things3MCP/scripts/install-codex.sh
+git clone https://github.com/EmanueleValentini/things3-mcp.git && ./things3-mcp/scripts/install-codex.sh
 ```
 
 Registers `[mcp_servers.things3]` in `~/.codex/config.toml` (backing up the

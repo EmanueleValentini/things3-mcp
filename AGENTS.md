@@ -40,7 +40,7 @@ claims, and you never strip another agent's tags to take their task.
 
 ## Setup
 
-- Claude Code: `/plugin marketplace add <user>/Things3MCP` then
+- Claude Code: `/plugin marketplace add EmanueleValentini/things3-mcp` then
   `/plugin install things3@things3`, then `/things3:setup`.
 - Codex: `scripts/install-codex.sh`, restart, then ask it to run `health_check`.
 
