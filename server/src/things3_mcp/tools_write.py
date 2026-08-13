@@ -1,9 +1,10 @@
 """Write tools.
 
 Creates go through `things:///json`; trashing goes through AppleScript.
-Destructive operations refuse to act until the caller passes confirmed=true —
-see permissions.py for what counts as destructive and why it is enforced here
-rather than in a prompt.
+
+Destructive operations do not act on their own say-so. They ask the client to
+put the question to the user, and only fall back to the `confirmed` argument
+when the client cannot — see permissions.py for why that ordering matters.
 """
 
 from __future__ import annotations
@@ -12,10 +13,9 @@ import subprocess
 import urllib.parse
 from typing import Any
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 
 from . import applescript
-from .permissions import confirmation_required
 from .services import Services
 
 AGENT_TAG = "agent"
@@ -251,7 +251,9 @@ def register(server: MCPServer, services: Services) -> None:
     # -- destructive: require confirmed=true ----------------------------
 
     @server.tool()
-    def complete_item(uuid: str, confirmed: bool = False) -> dict[str, Any]:
+    async def complete_item(
+        uuid: str, confirmed: bool = False, ctx: Context | None = None
+    ) -> dict[str, Any]:
         """Mark a to-do or project as done.
 
         Items the agent itself created in the agents area complete immediately.
@@ -262,38 +264,49 @@ def register(server: MCPServer, services: Services) -> None:
         if item is None:
             raise LookupError(f"No item with uuid {uuid}")
         guard.check_scope("complete_item", area=item.get("area"), uuid=uuid)
-        if not confirmed and not _agent_owned(uuid):
-            guard.audit("complete_item", "confirmation_required", uuid=uuid)
-            return confirmation_required(
+        if not _agent_owned(uuid):
+            blocked = await guard.consent(
+                ctx,
                 "complete_item",
                 {"uuid": uuid, "title": item.get("title"), "project": item.get("project")},
                 "This item was not created by the agent, so completing it changes the "
                 "user's own list.",
+                confirmed,
+                uuid=uuid,
             )
+            if blocked:
+                return blocked
         result = writer.update(uuid, item.get("type", "todo"), {"completed": True})
         guard.audit("complete_item", "ok", uuid=uuid, title=item.get("title"))
         return result
 
     @server.tool()
-    def cancel_item(uuid: str, confirmed: bool = False) -> dict[str, Any]:
+    async def cancel_item(
+        uuid: str, confirmed: bool = False, ctx: Context | None = None
+    ) -> dict[str, Any]:
         """Mark a to-do or project as canceled. Always needs confirmation."""
         item = db.get(uuid)
         if item is None:
             raise LookupError(f"No item with uuid {uuid}")
         guard.check_scope("cancel_item", area=item.get("area"), uuid=uuid)
-        if not confirmed:
-            guard.audit("cancel_item", "confirmation_required", uuid=uuid)
-            return confirmation_required(
-                "cancel_item",
-                {"uuid": uuid, "title": item.get("title"), "project": item.get("project")},
-                "Canceling hides the item from active lists.",
-            )
+        blocked = await guard.consent(
+            ctx,
+            "cancel_item",
+            {"uuid": uuid, "title": item.get("title"), "project": item.get("project")},
+            "Canceling hides the item from active lists.",
+            confirmed,
+            uuid=uuid,
+        )
+        if blocked:
+            return blocked
         result = writer.update(uuid, item.get("type", "todo"), {"canceled": True})
         guard.audit("cancel_item", "ok", uuid=uuid, title=item.get("title"))
         return result
 
     @server.tool()
-    def set_notes(uuid: str, notes: str, confirmed: bool = False) -> dict[str, Any]:
+    async def set_notes(
+        uuid: str, notes: str, confirmed: bool = False, ctx: Context | None = None
+    ) -> dict[str, Any]:
         """Replace an item's notes wholesale. Prefer append_note.
 
         Always needs confirmation: the previous notes are shown in the preview
@@ -303,24 +316,29 @@ def register(server: MCPServer, services: Services) -> None:
         if item is None:
             raise LookupError(f"No item with uuid {uuid}")
         guard.check_scope("set_notes", area=item.get("area"), uuid=uuid)
-        if not confirmed:
-            guard.audit("set_notes", "confirmation_required", uuid=uuid)
-            return confirmation_required(
-                "set_notes",
-                {
-                    "uuid": uuid,
-                    "title": item.get("title"),
-                    "current_notes": item.get("notes"),
-                    "new_notes": notes,
-                },
-                "This overwrites the existing notes.",
-            )
+        blocked = await guard.consent(
+            ctx,
+            "set_notes",
+            {
+                "uuid": uuid,
+                "title": item.get("title"),
+                "current_notes": item.get("notes"),
+                "new_notes": notes,
+            },
+            "This overwrites the existing notes.",
+            confirmed,
+            uuid=uuid,
+        )
+        if blocked:
+            return blocked
         result = writer.update(uuid, item.get("type", "todo"), {"notes": notes})
         guard.audit("set_notes", "ok", uuid=uuid)
         return result
 
     @server.tool()
-    def remove_tags(uuid: str, tags: list[str], confirmed: bool = False) -> dict[str, Any]:
+    async def remove_tags(
+        uuid: str, tags: list[str], confirmed: bool = False, ctx: Context | None = None
+    ) -> dict[str, Any]:
         """Remove tags from an item. Needs confirmation — tags carry meaning
         in the user's own workflow."""
         item = db.get(uuid)
@@ -328,29 +346,33 @@ def register(server: MCPServer, services: Services) -> None:
             raise LookupError(f"No item with uuid {uuid}")
         guard.check_scope("remove_tags", area=item.get("area"), uuid=uuid)
         remaining = [tag for tag in item.get("tags", []) if tag not in tags]
-        if not confirmed:
-            guard.audit("remove_tags", "confirmation_required", uuid=uuid)
-            return confirmation_required(
-                "remove_tags",
-                {
-                    "uuid": uuid,
-                    "title": item.get("title"),
-                    "current_tags": item.get("tags", []),
-                    "tags_after": remaining,
-                },
-                "The Things URL scheme can only replace the whole tag list, so "
-                "removal rewrites it.",
-            )
+        blocked = await guard.consent(
+            ctx,
+            "remove_tags",
+            {
+                "uuid": uuid,
+                "title": item.get("title"),
+                "current_tags": item.get("tags", []),
+                "tags_after": remaining,
+            },
+            "The Things URL scheme can only replace the whole tag list, so "
+            "removal rewrites it.",
+            confirmed,
+            uuid=uuid,
+        )
+        if blocked:
+            return blocked
         result = writer.update(uuid, item.get("type", "todo"), {"tags": remaining})
         guard.audit("remove_tags", "ok", uuid=uuid, removed=tags)
         return result
 
     @server.tool()
-    def move_item(
+    async def move_item(
         uuid: str,
         project: str | None = None,
         area: str | None = None,
         confirmed: bool = False,
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Move an item to another project or area.
 
@@ -367,9 +389,9 @@ def register(server: MCPServer, services: Services) -> None:
             item.get("project"),
             item.get("project_uuid"),
         )
-        if leaving and not confirmed:
-            guard.audit("move_item", "confirmation_required", uuid=uuid)
-            return confirmation_required(
+        if leaving:
+            blocked = await guard.consent(
+                ctx,
                 "move_item",
                 {
                     "uuid": uuid,
@@ -378,7 +400,11 @@ def register(server: MCPServer, services: Services) -> None:
                     "to": project or area,
                 },
                 "Moving takes the item out of the project it lives in now.",
+                confirmed,
+                uuid=uuid,
             )
+            if blocked:
+                return blocked
         attributes: dict[str, Any] = {}
         if project:
             attributes["list" if not _is_uuid(project) else "list-id"] = project
@@ -389,7 +415,9 @@ def register(server: MCPServer, services: Services) -> None:
         return result
 
     @server.tool()
-    def delete_item(uuid: str, confirmed: bool = False) -> dict[str, Any]:
+    async def delete_item(
+        uuid: str, confirmed: bool = False, ctx: Context | None = None
+    ) -> dict[str, Any]:
         """Move an item to the Things trash. Always needs confirmation.
 
         Recoverable from the trash inside Things until the trash is emptied.
@@ -398,25 +426,87 @@ def register(server: MCPServer, services: Services) -> None:
         if item is None:
             raise LookupError(f"No item with uuid {uuid}")
         guard.check_scope("delete_item", area=item.get("area"), uuid=uuid)
-        if not confirmed:
-            guard.audit("delete_item", "confirmation_required", uuid=uuid)
-            return confirmation_required(
-                "delete_item",
-                {
-                    "uuid": uuid,
-                    "title": item.get("title"),
-                    "type": item.get("type"),
-                    "project": item.get("project"),
-                    "area": item.get("area"),
-                },
-                "This moves the item to the trash. A project takes its to-dos with it.",
-            )
+        blocked = await guard.consent(
+            ctx,
+            "delete_item",
+            {
+                "uuid": uuid,
+                "title": item.get("title"),
+                "type": item.get("type"),
+                "project": item.get("project"),
+                "area": item.get("area"),
+            },
+            "This moves the item to the trash. A project takes its to-dos with it.",
+            confirmed,
+            uuid=uuid,
+        )
+        if blocked:
+            return blocked
         applescript.trash(uuid)
         guard.audit("delete_item", "ok", uuid=uuid, title=item.get("title"))
         return {"trashed": uuid, "title": item.get("title")}
 
     @server.tool()
-    def empty_trash(confirmed: bool = False) -> dict[str, Any]:
+    async def delete_area(
+        area: str, confirmed: bool = False, ctx: Context | None = None
+    ) -> dict[str, Any]:
+        """Delete an area, by title or uuid. Always needs confirmation.
+
+        Unlike a to-do or a project, a deleted area does not go to the Things
+        trash — it is gone, and so is the grouping of whatever lived in it. The
+        preview lists everything the area currently holds so the user can see
+        what they are agreeing to.
+        """
+        record = db.area_by_title(area) or next(
+            (a for a in db.areas() if a["uuid"] == area), None
+        )
+        if record is None:
+            raise LookupError(f"No area named or with uuid {area!r}")
+
+        projects = db.projects(area=record["title"], include_completed=True, limit=200)
+        loose = [
+            item
+            for item in db.search(area=record["title"], status="any", limit=200)
+            if not item.get("project")
+        ]
+        blocked = await guard.consent(
+            ctx,
+            "delete_area",
+            {
+                "area": record["title"],
+                "uuid": record["uuid"],
+                "projects": [p["title"] for p in projects],
+                "loose_items": [t["title"] for t in loose],
+            },
+            "Deleting an area cannot be undone from the app: areas do not go to "
+            "the trash. Its projects and to-dos survive but lose their area.",
+            confirmed,
+            uuid=record["uuid"],
+        )
+        if blocked:
+            return blocked
+
+        applescript.delete_area(record["uuid"])
+        if config.owns_area(record["title"]):
+            config.save(
+                agents_areas=[
+                    name
+                    for name in config.agents_areas
+                    if name.casefold() != record["title"].casefold()
+                ]
+                or [config.agents_area]
+            )
+        guard.audit("delete_area", "ok", uuid=record["uuid"], title=record["title"])
+        return {
+            "deleted_area": record["title"],
+            "uuid": record["uuid"],
+            "orphaned_projects": [p["title"] for p in projects],
+        }
+
+    @server.tool()
+    async def empty_trash(
+        confirmed: bool = False, ctx: Context | None = None
+    ) -> dict[str, Any]:
         """Permanently delete everything in the Things trash. Irreversible.
 
         Disabled unless THINGS_ALLOW_EMPTY_TRASH=1, and even then requires
@@ -429,13 +519,16 @@ def register(server: MCPServer, services: Services) -> None:
                 "in Things directly."
             )
         pending = db.trash(limit=200)
-        if not confirmed:
-            guard.audit("empty_trash", "confirmation_required", count=len(pending))
-            return confirmation_required(
-                "empty_trash",
-                {"count": len(pending), "items": [i.get("title") for i in pending[:20]]},
-                "Permanent deletion. There is no undo.",
-            )
+        blocked = await guard.consent(
+            ctx,
+            "empty_trash",
+            {"count": len(pending), "items": [i.get("title") for i in pending[:20]]},
+            "Permanent deletion. There is no undo.",
+            confirmed,
+            count=len(pending),
+        )
+        if blocked:
+            return blocked
         applescript.empty_trash()
         guard.audit("empty_trash", "ok", count=len(pending))
         return {"emptied": len(pending)}

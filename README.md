@@ -76,10 +76,13 @@ any client:
 - **Automatic** — all reads, and any write inside an agent area.
 - **Check first** — creating or editing in your own projects. The agent
   describes it and asks before the first write.
-- **Explicit confirmation, always** — `delete_item`, `cancel_item`, `set_notes`,
-  `remove_tags`, moving an item out of its project, `empty_trash`, and
-  completing an item the agent did not create. These return a preview and act
-  only when called again with `confirmed=true`.
+- **The user is asked, always** — `delete_item`, `delete_area`, `cancel_item`,
+  `set_notes`, `remove_tags`, moving an item out of its project, `empty_trash`,
+  and completing an item the agent did not create. The server asks *your
+  client* to put the question to you, over MCP elicitation, so the answer comes
+  from you rather than from the agent's judgement. Clients that cannot do that
+  get a preview to relay instead, and the agent must stop and wait for your
+  reply before calling again with `confirmed=true`.
 
 `delete_item` moves to the Things trash and is recoverable. `empty_trash` is the
 one irreversible operation and is disabled unless `THINGS_ALLOW_EMPTY_TRASH=1`.
@@ -123,7 +126,8 @@ Read: `list_inbox`, `list_today`, `list_upcoming`, `list_anytime`,
 
 Write: `create_todo`, `create_project`, `update_item`, `append_note`,
 `add_checklist_items`, `complete_item`, `cancel_item`, `set_notes`,
-`remove_tags`, `move_item`, `delete_item`, `empty_trash`, `show_in_things`.
+`remove_tags`, `move_item`, `delete_item`, `delete_area`, `empty_trash`,
+`show_in_things`.
 
 Agent workspace: `agent_workspace_init`, `agent_create_stream`, `agent_status`,
 `agent_next_task`, `agent_claim_task`, `agent_log_progress`, `agent_block_task`,

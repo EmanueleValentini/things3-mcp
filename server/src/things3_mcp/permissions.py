@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from .config import SCOPE_AGENTS_ONLY, Config, AUDIT_LOG, CONFIG_DIR
 from .dates import now_iso
 from .db import ThingsDB
@@ -21,6 +23,60 @@ from .db import ThingsDB
 
 class PermissionDenied(RuntimeError):
     pass
+
+
+class ConsentSchema(BaseModel):
+    """What the client asks the human when a destructive tool needs consent."""
+
+    confirm: bool = Field(
+        description="Yes to go ahead with this exact operation, no to cancel."
+    )
+
+
+ACCEPTED = "accepted"
+DECLINED = "declined"
+UNAVAILABLE = "unavailable"
+
+
+async def ask_user(ctx: Any, action: str, preview: dict[str, Any], why: str) -> str:
+    """Put the question to the human through the client, not through the model.
+
+    A `confirmed=true` argument only proves the model decided to send it; it
+    cannot distinguish the user's consent from the model's own conviction.
+    Elicitation routes the question to the client, which is the closest thing
+    the protocol offers to asking the person directly.
+
+    Returns ACCEPTED, DECLINED, or UNAVAILABLE when the client does not support
+    elicitation — in which case the caller falls back to the preview flow and
+    says so, rather than silently treating absence as a yes.
+    """
+    if ctx is None:
+        return UNAVAILABLE
+    lines = [why, "", f"Operation: {action}"]
+    for key, value in preview.items():
+        if value not in (None, "", [], {}):
+            shown = ", ".join(map(str, value)) if isinstance(value, list) else value
+            lines.append(f"  {key}: {shown}")
+    try:
+        result = await ctx.elicit(message="\n".join(lines), schema=ConsentSchema)
+    except Exception:
+        return UNAVAILABLE
+    if getattr(result, "action", None) != "accept":
+        return DECLINED
+    data = getattr(result, "data", None)
+    return ACCEPTED if data is not None and data.confirm else DECLINED
+
+
+def declined(action: str, preview: dict[str, Any]) -> dict[str, Any]:
+    """The user was asked and said no. Not an error — a decision to respect."""
+    return {
+        "performed": False,
+        "action": action,
+        "declined_by_user": True,
+        "preview": preview,
+        "next_step": "The user declined. Do not retry this operation or look for "
+        "another way to achieve it.",
+    }
 
 
 def confirmation_required(action: str, preview: dict[str, Any], why: str) -> dict[str, Any]:
@@ -35,9 +91,11 @@ def confirmation_required(action: str, preview: dict[str, Any], why: str) -> dic
         "why": why,
         "preview": preview,
         "next_step": (
-            "Show this to the user, ask for explicit confirmation, then call the "
-            "same tool again with confirmed=true. Never set confirmed=true on your "
-            "own initiative."
+            "This client cannot ask the user directly, so consent has to come back "
+            "through you. Show this preview, stop, and let the user reply. Only if "
+            "they say yes in their next message may you call the same tool again "
+            "with confirmed=true. Your own instruction to do the work is not that "
+            "yes: an earlier 'delete X' is the request, not the confirmation."
         ),
     }
 
@@ -66,6 +124,37 @@ class Guard:
                 f"'{SCOPE_AGENTS_ONLY}': writes are confined to {owned}. Ask the "
                 "user to widen the scope in /things3:setup if this is intended."
             )
+
+    # -- consent --------------------------------------------------------
+
+    async def consent(
+        self,
+        ctx: Any,
+        tool: str,
+        preview: dict[str, Any],
+        why: str,
+        confirmed: bool,
+        **detail: Any,
+    ) -> dict[str, Any] | None:
+        """Gate a destructive operation. None means go ahead.
+
+        Asks the client to put the question to the user. Only when the client
+        cannot do that does the ``confirmed`` argument decide — it is the
+        fallback, not the primary channel, because a flag set by the model
+        proves nothing about what the person wanted.
+        """
+        outcome = await ask_user(ctx, tool, preview, why)
+        if outcome == ACCEPTED:
+            self.audit(tool, "consent_granted", channel="elicitation", **detail)
+            return None
+        if outcome == DECLINED:
+            self.audit(tool, "declined", channel="elicitation", **detail)
+            return declined(tool, preview)
+        if confirmed:
+            self.audit(tool, "consent_granted", channel="confirmed_flag", **detail)
+            return None
+        self.audit(tool, "confirmation_required", **detail)
+        return confirmation_required(tool, preview, why)
 
     def outside_agents_area(self, uuid: str) -> bool:
         """True when an item lives outside the agents area — used to decide

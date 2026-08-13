@@ -16,26 +16,19 @@ from things3_mcp import tools_write
 from things3_mcp.dates import now_iso
 from things3_mcp.services import Services
 
-
-class Collector:
-    """Captures the tool functions instead of serving them over MCP."""
-
-    def __init__(self):
-        self.tools = {}
-
-    def tool(self, *args, **kwargs):
-        def decorator(fn):
-            self.tools[fn.__name__] = fn
-            return fn
-
-        return decorator
-
+# The test harness knows how to call async tools and how to fake a client that
+# can (or cannot) ask the user.
+from tests.conftest import FakeContext, FakeServer
 
 services = Services.build()
 db = services.db
-collector = Collector()
-tools_write.register(collector, services)
-tools = collector.tools
+server = FakeServer()
+tools_write.register(server, services)
+tools = server.tools
+
+SAYS_YES = FakeContext(True)
+SAYS_NO = FakeContext(False)
+CANNOT_ASK = FakeContext(None)
 
 failures = []
 
@@ -82,21 +75,27 @@ try:
         check("notes appended", "progress line" in (db.get(first["uuid"]).get("notes") or ""))
 
         # This project is not in the agents area, so completing it is the
-        # user's call: the guard must ask before doing anything.
-        preview = tools["complete_item"](uuid=first["uuid"])
+        # user's call. With a client that cannot ask, the tool hands back a
+        # preview instead of acting.
+        preview = tools["complete_item"](uuid=first["uuid"], ctx=CANNOT_ASK)
         check("completing a user item asks first", preview.get("confirmation_required") is True)
         check("still open after the preview", db.get(first["uuid"])["status"] == "open")
 
-        tools["complete_item"](uuid=first["uuid"], confirmed=True)
-        check("completed once confirmed", db.get(first["uuid"])["status"] == "completed")
+        # A model claiming confirmation does not override the person.
+        refused = tools["complete_item"](uuid=first["uuid"], confirmed=True, ctx=SAYS_NO)
+        check("a no from the user beats confirmed=true", refused.get("declined_by_user") is True)
+        check("still open after the refusal", db.get(first["uuid"])["status"] == "open")
 
-        guarded = tools["set_notes"](uuid=first["uuid"], notes="overwritten")
+        tools["complete_item"](uuid=first["uuid"], ctx=SAYS_YES)
+        check("completed once the user agrees", db.get(first["uuid"])["status"] == "completed")
+
+        guarded = tools["set_notes"](uuid=first["uuid"], notes="overwritten", ctx=CANNOT_ASK)
         check("destructive tool asks first", guarded.get("confirmation_required") is True)
         check("nothing was overwritten", "progress line" in (db.get(first["uuid"]).get("notes") or ""))
     else:
         print("skip  update cycle (no auth token configured)")
 finally:
-    tools["delete_item"](uuid=uuid, confirmed=True)
+    tools["delete_item"](uuid=uuid, ctx=SAYS_YES)
     print(f"trashed {uuid}")
 
 print()

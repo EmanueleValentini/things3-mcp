@@ -12,13 +12,18 @@ apply to any agent using it, in this repo or anywhere else.
    are about to create or change and get agreement in the same turn. An
    agreement covers the batch you described, not the rest of the session.
 
-3. **Destructive operations return a preview, not a result.** `delete_item`,
-   `cancel_item`, `set_notes`, `remove_tags`, `move_item` out of a project,
-   `empty_trash`, and `complete_item` on items you did not create all respond
-   with `confirmation_required` until called with `confirmed=true`. Show the
-   preview, ask, then call again. Setting `confirmed=true` without an explicit
-   yes from the user in that turn is a violation, not a shortcut — the flag
-   represents their decision, not your confidence.
+3. **Destructive operations ask the user themselves.** `delete_item`,
+   `delete_area`, `cancel_item`, `set_notes`, `remove_tags`, `move_item` out of
+   a project, `empty_trash`, and `complete_item` on items you did not create
+   all put the question to the client, which shows it to the user. You do not
+   decide the answer, and `confirmed=true` does not skip the question.
+
+   Only when the client cannot ask does the server fall back to returning
+   `confirmation_required` for you to relay. In that case: show the preview,
+   **stop**, and let the user reply. Their earlier "delete X" is the request,
+   not the confirmation of the irreversible step — the two must be separate
+   messages. Calling again with `confirmed=true` inside the same turn that
+   produced the preview is the exact failure this rule exists to prevent.
 
 ## The agent workspace
 

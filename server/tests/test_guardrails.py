@@ -166,3 +166,43 @@ def test_audit_log_records_confirmations(write_tools, guard, tmp_path, monkeypat
     entry = json.loads(log.read_text().splitlines()[0])
     assert entry["tool"] == "delete_item"
     assert entry["outcome"] == "confirmation_required"
+
+
+def test_delete_area_previews_what_it_holds(write_tools, monkeypatch):
+    from things3_mcp import applescript
+
+    monkeypatch.setattr(
+        applescript, "delete_area", lambda uuid: pytest.fail("deleted without consent")
+    )
+    result = write_tools["delete_area"](area="Casa")
+    assert result["confirmation_required"] is True
+    assert result["preview"]["projects"] == ["Trasloco"]
+    assert "cannot be undone" in result["why"]
+
+
+def test_delete_area_rejects_an_unknown_name(write_tools):
+    with pytest.raises(LookupError):
+        write_tools["delete_area"](area="Non esiste")
+
+
+def test_delete_area_deletes_by_uuid_once_confirmed(write_tools, monkeypatch):
+    from things3_mcp import applescript
+
+    deleted = []
+    monkeypatch.setattr(applescript, "delete_area", deleted.append)
+    result = write_tools["delete_area"](area="Casa", confirmed=True)
+    assert deleted == ["area-personal"]  # by id, never by name
+    assert result["orphaned_projects"] == ["Trasloco"]
+
+
+def test_deleting_an_agent_area_drops_it_from_the_config(write_tools, config, monkeypatch):
+    from things3_mcp import applescript
+    from things3_mcp.config import Config
+
+    monkeypatch.setattr(applescript, "delete_area", lambda uuid: None)
+    monkeypatch.setattr(
+        Config, "save", lambda self, **u: [setattr(self, k, v) for k, v in u.items()]
+    )
+    config.agents_areas = ["Agents", "Casa"]
+    write_tools["delete_area"](area="Casa", confirmed=True)
+    assert config.agents_areas == ["Agents"]

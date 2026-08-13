@@ -91,6 +91,21 @@ def create_area(name: str) -> str:
     return result.replace("area id ", "").strip()
 
 
+def delete_area(uuid: str) -> None:
+    """Delete an area, by id.
+
+    Always by id, never by name: an id either resolves to one object or fails,
+    while a name depends on what else is in the file. Things does not put a
+    deleted area in the trash — this cannot be undone from the app.
+    """
+    run(
+        "on run argv\n"
+        f'  tell application "{APP}" to delete area id (item 1 of argv)\n'
+        "end run",
+        uuid,
+    )
+
+
 def trash(uuid: str) -> None:
     """Move a to-do or project to the Things trash. Recoverable in-app."""
     run(

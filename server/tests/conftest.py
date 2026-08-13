@@ -3,7 +3,11 @@ the user's real data or the app."""
 
 from __future__ import annotations
 
+import asyncio
+import functools
+import inspect
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 
@@ -143,6 +147,18 @@ def guard(config, db):
     return Guard(config, db)
 
 
+def _callable_from_tests(fn):
+    """Let tests call an async tool like a plain function."""
+    if not inspect.iscoroutinefunction(fn):
+        return fn
+
+    @functools.wraps(fn)
+    def wrapper(**kwargs):
+        return asyncio.run(fn(**kwargs))
+
+    return wrapper
+
+
 class FakeServer:
     """Captures the functions each module registers so they can be called
     directly, without going through the MCP transport."""
@@ -152,10 +168,27 @@ class FakeServer:
 
     def tool(self, *args, **kwargs):
         def decorator(fn):
-            self.tools[fn.__name__] = fn
+            self.tools[fn.__name__] = _callable_from_tests(fn)
             return fn
 
         return decorator
+
+
+class FakeContext:
+    """A client that can ask the user, with a scripted answer."""
+
+    def __init__(self, answer):
+        self.answer = answer
+        self.messages = []
+
+    async def elicit(self, message, schema):
+        self.messages.append(message)
+        if self.answer is None:
+            raise RuntimeError("client does not support elicitation")
+        return SimpleNamespace(
+            action="accept" if self.answer else "decline",
+            data=SimpleNamespace(confirm=True) if self.answer else None,
+        )
 
 
 class RefusingWriter:
