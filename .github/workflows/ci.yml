@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # macOS is the only platform this ships on. The suite still never touches
+    # Things itself: it builds its own database and fakes the AppleScript calls.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+        working-directory: server
+
+      - name: Run tests
+        run: uv run --no-sync pytest -q
+        working-directory: server
+
+      - name: Check the server starts and lists its tools
+        run: |
+          echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' \
+            | uv run --no-sync things3-mcp \
+            | grep -q '"serverInfo"'
+        working-directory: server
+
+  changelog:
+    # Every pull request says what it changed, in the file users read.
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require a CHANGELOG entry
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          if [[ ",$LABELS," == *",no-changelog,"* ]]; then
+            echo "Skipped: the pull request is labelled no-changelog."
+            exit 0
+          fi
+          if git diff --name-only "$BASE" "$HEAD" | grep -qx 'CHANGELOG.md'; then
+            echo "CHANGELOG.md updated."
+            exit 0
+          fi
+          echo "::error::This pull request does not touch CHANGELOG.md."
+          echo "Add a line under '## [Unreleased]' describing the change from a"
+          echo "user's point of view, or label the pull request 'no-changelog'"
+          echo "if it genuinely changes nothing users would notice."
+          exit 1
